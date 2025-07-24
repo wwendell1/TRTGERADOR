@@ -15,17 +15,18 @@ def colar_valor_ao_lado(ws, texto_alvo, valor, ocorrencia=1):
                     ws.cell(row=linha_destino, column=col_destino).value = valor
                     return True
     return False
-#PROCESSAR PLANILHAS O LOCAL DOS ARQUIVOS
+
 def processar_planilhas():
-    caminho_origem = r"C:\Users\wendel.ferreira\Desktop\TESTAT\RelatóriodeAudiências2025.xlsx"
-    caminho_destino = r"C:\Users\wendel.ferreira\Desktop\TESTAT\TRT28.07a02.8.xlsx"
+    caminho_origem = r"C:\Users\wendel.ferreira\Desktop\TESTAT\RelatóriodeAudiências25.xlsx"
+    caminho_destino = r"C:\Users\wendel.ferreira\Desktop\TESTAT\TRT04.08a08.08.xlsx"
 
     try:
         if not os.path.exists(caminho_origem) or not os.path.exists(caminho_destino):
             print("Erro: Um dos arquivos não foi encontrado.")
             return
 
-        df_origem = pd.read_excel(caminho_origem, sheet_name='Julho')
+        df_origem = pd.read_excel(caminho_origem, sheet_name='Sheet1')
+
         mapeamento_colunas = {
             'DATA': 'DATA',
             'HORARIO': 'HORARIO', 
@@ -33,41 +34,55 @@ def processar_planilhas():
             'RECLAMADO': 'RECLAMADO',
             'Nº DO PROCESSO': 'NUM_PROCESSO',
             'TURMA': 'TURMA',
-            'RELATOR': 'RELATOR'
+            'RELATOR': 'RELATOR',
+            'TIPO DE RECURSO': 'TIPO_RECURSO'
         }
+
         df_origem = df_origem.rename(columns=mapeamento_colunas)
-        colunas_necessarias = ['DATA', 'HORARIO', 'RECLAMANTE', 'RECLAMADO', 'NUM_PROCESSO', 'TURMA', 'RELATOR']
+        colunas_necessarias = ['DATA', 'HORARIO', 'RECLAMANTE', 'RECLAMADO', 'NUM_PROCESSO', 'TURMA', 'RELATOR', 'TIPO_RECURSO']
         df_filtrado = df_origem[colunas_necessarias].copy()
         df_filtrado = df_filtrado.dropna(subset=['DATA', 'HORARIO'])
+
+        # Conversão e ordenação
         df_filtrado['DATA'] = pd.to_datetime(df_filtrado['DATA'], errors='coerce')
         df_filtrado['HORARIO_TIME'] = pd.to_datetime(df_filtrado['HORARIO'], format='%H:%M', errors='coerce').dt.time
         df_filtrado = df_filtrado.sort_values(['DATA', 'HORARIO_TIME'])
-        df_filtrado = df_filtrado.drop('HORARIO_TIME', axis=1)
 
         wb_destino = openpyxl.load_workbook(caminho_destino)
         ws_destino = wb_destino["Julho"] if "Julho" in wb_destino.sheetnames else wb_destino.active
 
-        for i, row in df_filtrado.iterrows():
-            colar_valor_ao_lado(ws_destino, "Nº processo:", str(row['NUM_PROCESSO']), ocorrencia=i+1)
-            colar_valor_ao_lado(ws_destino, "Reclamante:", str(row['RECLAMANTE']), ocorrencia=i+1)
-            colar_valor_ao_lado(ws_destino, "Horário:", str(row['HORARIO']), ocorrencia=i+1)
-            colar_valor_ao_lado(ws_destino, "Relator:", str(row['RELATOR']), ocorrencia=i+1)
-            colar_valor_ao_lado(ws_destino, "Reclamado:", str(row['RECLAMADO']), ocorrencia=i+1)
+        ocorrencia_global = 1
 
-            # >>> AJUSTE FINO: separação TURMA / LOCAL
-            turma_texto = str(row['TURMA']).strip()
+        # Agrupar por data para manter ordem por dia
+        for data, grupo in df_filtrado.groupby('DATA'):
+            grupo_ordenado = grupo.sort_values(by='HORARIO')
 
-            # Divide por espaço ou hífen
-            partes = turma_texto.split()
-            if len(partes) >= 2:
-                numero_turma = partes[0]
-                local_turma = " ".join(partes[1:])
-            else:
-                numero_turma = turma_texto
-                local_turma = ""
+            for _, row in grupo_ordenado.iterrows():
+                tipo = str(row.get('TIPO_RECURSO', '')).strip().upper()
+                if "RECURSO ORDINARIO" in tipo:
+                    prefixo = "RO "
+                elif "AGRAVO DE PETIÇÃO" in tipo:
+                    prefixo = "AP "
+                else:
+                    prefixo = ""
 
-            colar_valor_ao_lado(ws_destino, "Turma:", numero_turma, ocorrencia=i+1)
-            colar_valor_ao_lado(ws_destino, "Local:", local_turma, ocorrencia=i+1)
+                numero_formatado = f"{prefixo}{str(row['NUM_PROCESSO'])}"
+
+                colar_valor_ao_lado(ws_destino, "Nº processo:", numero_formatado, ocorrencia=ocorrencia_global)
+                colar_valor_ao_lado(ws_destino, "Reclamante:", str(row['RECLAMANTE']), ocorrencia=ocorrencia_global)
+                colar_valor_ao_lado(ws_destino, "Horário:", str(row['HORARIO']), ocorrencia=ocorrencia_global)
+                colar_valor_ao_lado(ws_destino, "Relator:", str(row['RELATOR']), ocorrencia=ocorrencia_global)
+                colar_valor_ao_lado(ws_destino, "Reclamado:", str(row['RECLAMADO']), ocorrencia=ocorrencia_global)
+
+                turma_texto = str(row['TURMA']).strip()
+                partes = turma_texto.split()
+                numero_turma = partes[0] if len(partes) >= 1 else turma_texto
+                local_turma = " ".join(partes[1:]) if len(partes) > 1 else ""
+
+                colar_valor_ao_lado(ws_destino, "Turma:", numero_turma, ocorrencia=ocorrencia_global)
+                colar_valor_ao_lado(ws_destino, "Local:", local_turma, ocorrencia=ocorrencia_global)
+
+                ocorrencia_global += 1  # Incrementa depois de cada registro
 
         wb_destino.save(caminho_destino)
         wb_destino.close()
